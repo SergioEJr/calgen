@@ -1142,7 +1142,7 @@ class StaffCmd(cmd.Cmd):
             availability = np.genfromtxt(path, delimiter=',')
         else:
             availability = None
-            av_warning = (f"{Fore.LIGHTRED_EX}[WARNING]: No availability loaded."
+            av_warning = (f"\n{Fore.LIGHTRED_EX}[WARNING]: No availability loaded."
                   " Use function 'ldav'"
                   " before \nattempting to use the 'mkcal' utility"
                   f"{Style.RESET_ALL}")
@@ -1164,6 +1164,163 @@ Welcome {staff.staff_name} SRA!
 
     prompt = 'calgen: '
     
+    # * more detailed documentation for the multiple 
+    # * 'set' command handler commands
+    def help_set_pts(self):
+        print('''
+        Usage: set pts <name> <points>
+        
+        Changes the points of an RA.
+        
+        Parameters
+        ----------
+        name : str
+            name of the RA to modify
+        points : int
+            number of points to set
+            
+        eg. calgen: set pts Jane Doe 10
+            Jane Doe' now has 10.0 points
+        ''')
+        
+    def help_set_name(self):
+        print('''
+        Usage: set name <old_name> , <new_name>
+                                   ^ mind the comma
+        Changes the name of an RA.
+        
+        Parameters
+        ----------
+        old_name : str
+            current name of the RA whose name to change
+        new_name : str
+            new name for the chosen RA
+            
+        eg. calgen: set name John D , John Doe
+            Changed name 'John D' to 'John Doe'
+        ''')
+        
+    def help_set_ends(self):
+        print('''
+        Usage: set ends <days>
+        
+        Set which days count as weekends.
+        
+        Parameters
+        ----------
+        days : int 0-6 inclusive separated by spaces or ','
+            the day(s) you wish to count as weekends. The number 0 corresponds
+            to Monday, 1 Tuesday, ..., 6 Sunday
+            
+        eg. calgen: set ends 4,5
+            Weekends changed to Friday Saturday
+        ''')
+
+        
+
+    def help_set_factor(self):
+        print('''
+        Usage: set factor <value>
+        
+        Set how many points a weekend is worth. The calendar generating
+        algorithm was made and tested with a weekend value of 2.
+        
+        Parameters
+        ----------
+        value : float or int
+            the number of points a weekend will be worth
+            all other days are worth 1 point
+            
+        eg. calgen: set factor 1.5
+            Weekend value changed to 1.5
+        ''')
+        
+    # * Methods to change attributes, not directly user callable
+
+    def set_pts(self, arg):
+        name = ''
+        for t in arg.split():
+            try:
+                points = float(t)
+            except ValueError:
+                name += f"{t} "
+        name = name.strip()
+
+        if name == '':
+            self.help_set_points()
+            return
+
+        try:
+            name_to_RAobject = dict(zip(staff.get_names(), staff.RAs))
+            chosen_RA = name_to_RAobject[name]
+            chosen_RA.points = points
+            print(f"'{chosen_RA.name}' now has {points} points")
+            self.save()
+        except KeyError:
+            e = KeyError(f"Given name '{name}' does not exist.")
+            eprint(repr(e))
+        except UnboundLocalError:
+            print("Usage: set points <name> <points>")
+        except Exception as e:
+            eprint(repr(e))
+
+    def set_name(self, arg):
+
+        try: 
+            args = re.split(r'\s*,\s*', arg.strip())
+            if len(args) != 2:
+                self.help_set_name()
+                return
+            old_name, new_name = args[0], args[1]
+            name_to_RA = dict(zip(staff.get_names(), staff.RAs))
+            if new_name in name_to_RA.keys():
+                raise ValueError(f"'{new_name}' name already taken")
+            chosen_RA = name_to_RA[old_name]
+            chosen_RA.name = new_name
+            print(f"Changed name '{old_name}' to '{new_name}'")
+            self.save()
+        except KeyError:
+            e = KeyError(f"Given name '{old_name}' does not exist.")
+            eprint(repr(e))
+        except ValueError as e:
+            eprint(repr(e))
+        except Exception as e:
+            eprint(repr(e))
+
+    def set_factor(self, arg):
+        if arg == '':
+            self.help_set_factor()
+            return
+        try:
+            value = float(arg)
+            if value < 1:
+                raise ValueError("Weekend value must be >= 1")
+            staff.weekend_value = value
+            self.save()
+        except Exception as e:
+            eprint(repr(e))
+            print("Usage: set weekend_value <value>")
+
+    def set_ends(self, arg):
+
+        if arg == '':
+            self.help_set_ends()
+            return
+        
+        if re.fullmatch(r'(\d\s*,?\s*)+', arg):
+            try:
+                staff.weekends = StaffCmd.parse_int(arg)
+                self.save()
+            except IndexError:
+                e = IndexError("Weekends must be int from 0 to 6 inclusive")
+                eprint(repr(e))
+            except Exception as e:
+                eprint(repr(e))
+        else:
+            print("Usage: set weekends <days>")
+
+    # * begin user callable commands
+
     # quick overview of the staff
     def do_show(self, arg):
         '''
@@ -1178,8 +1335,6 @@ Welcome {staff.staff_name} SRA!
         -p    --points : sorts by points
         -pr    --pointsr : sorts by points reversed
         '''
-        global staff
-        
         arg = arg.strip()
         
         if arg == '-p' or arg == '--points':
@@ -1219,6 +1374,9 @@ Welcome {staff.staff_name} SRA!
         '''
         # parse the arguments
         args = re.split(r"\s+", arg.strip())
+        if args == ['']:
+            self.do_help("add")
+            return
         try:
             name = ' '.join(args[:-1])
             points = int(args[-1])
@@ -1252,7 +1410,13 @@ Welcome {staff.staff_name} SRA!
         name : str
             name of the RA to be removed
         '''
+        
         name = arg
+
+        if name == '':
+            self.do_help('remove')
+            return
+        
         try:
             staff.delete_RAs(name)
             print(f"Removed RA '{name}' from staff")
@@ -1273,174 +1437,41 @@ Welcome {staff.staff_name} SRA!
         
         Parameters
         ----------
-        attribute : str
+        attribute : str in (name, pts, ends, factor)
             the property to change
-            possible values: name ; points ; weekends ; weekend_value
         arguments : varies
             the arguments required to change the chosen attribute
             
         <attribute> : <arguments> pairs
         -------------------------------
         name : <old_name> , <new_name>
-        points : <name> <points>
-        weekends : <days>
-        weekend_value : <value>
+        pts : <name> <points>
+        ends : <days>
+        factor : <value>
         
         type 'help set_<attribute>' for more help
         '''
         try:
             attr = arg.split()[0]
         except:
-            print("Usage: set <attribute> <arguments>")
+            self.do_help('set')
             return
+
         args = ' '.join(arg.split()[1:])
         try:
-            if attr == 'points':
-                self.set_points(args)
+            if attr == 'pts':
+                self.set_pts(args)
             elif attr == 'name':
                 self.set_name(args)
-            elif attr == 'weekends':
-                self.set_weekends(args)
-            elif attr == 'weekend_value':
-                self.set_weekend_value(args)
+            elif attr == 'ends':
+                self.set_ends(args)
+            elif attr == 'factor':
+                self.set_factor(args)
             else:
                 eprint(f"Invalid Attribute: '{attr}'")
         except Exception as e:
             eprint(repr(e))
-            
-    def help_set_points(self):
-        print('''
-        Usage: set points <name> <points>
         
-        Changes the points of an RA.
-        
-        Parameters
-        ----------
-        name : str
-            name of the RA to modify
-        points : int
-            number of points to set
-            
-        eg. calgen: set points Jane Doe 10
-            Jane Doe' now has 10.0 points
-        ''')
-        
-    def help_set_name(self):
-        print('''
-        Usage: set name <old_name> , <new_name>
-        
-        Changes the name of an RA.
-        
-        Parameters
-        ----------
-        old_name : str
-            current name of the RA whose name to change
-        new_name : str
-            new name for the chosen RA
-            
-        eg. set name John D , John Doe
-            Changed name 'John D' to 'John Doe'
-        ''')
-        
-    def help_set_weekends(self):
-        print('''
-        Usage: set weekends <days>
-        
-        Set which days count as weekends.
-        
-        Parameters
-        ----------
-        days : int 0-6 inclusive separated by spaces or ','
-            the day(s) you wish to count as weekends. The number 0 corresponds
-            to Monday, 1 Tuesday, ..., 6 Sunday
-            
-        eg. calgen: set_weekends 4,5
-            Weekends changed to Friday Saturday
-        ''')
-        
-    def help_set_weekend_value(self):
-        print('''
-        Usage: set weekend_value <value>
-        
-        Set how many points a weekend is worth. The calendar generating
-        algorithm was made and tested with a weekend value of 2.
-        
-        Parameters
-        ----------
-        value : float or int
-            the number of points a weekend will be worth
-            all other days are worth 1 point
-            
-        eg. set weekend_value 1.5
-            Weekend value changed to 1.5
-        ''')
-        
-    
-    def set_points(self, arg):
-        name = ''
-        for t in arg.split():
-            try:
-                points = float(t)
-            except ValueError:
-                name += f"{t} "
-        name = name.strip()
-
-        try:
-            name_to_RAobject = dict(zip(staff.get_names(), staff.RAs))
-            chosen_RA = name_to_RAobject[name]
-            chosen_RA.points = points
-            print(f"'{chosen_RA.name}' now has {points} points")
-            self.save()
-        except KeyError:
-            e = KeyError(f"Given name '{name}' does not exist.")
-            eprint(repr(e))
-        except UnboundLocalError:
-            print("Usage: set points <name> <points>")
-        except Exception as e:
-            eprint(repr(e))
-
-    def set_name(self, args):
-        try: 
-            old_name, new_name = re.split(r'\s*,\s*', args.strip())
-            name_to_RA = dict(zip(staff.get_names(), staff.RAs))
-            if new_name in name_to_RA.keys():
-                raise ValueError(f"'{new_name}' name already taken")
-            chosen_RA = name_to_RA[old_name]
-            chosen_RA.name = new_name
-            print(f"Changed name '{old_name}' to '{new_name}'")
-            self.save()
-        except KeyError:
-            e = KeyError(f"Given name '{old_name}' does not exist.")
-            eprint(repr(e))
-        except ValueError as e:
-            eprint(repr(e))
-            print("Usage: set name <old_name> , <new_name>")
-        except Exception as e:
-            eprint(repr(e))
-
-    def set_weekend_value(self, arg):
-        try:
-            value = float(arg)
-            if value < 1:
-                raise ValueError("Weekend value must be >= 1")
-            staff.weekend_value = value
-            self.save()
-        except Exception as e:
-            eprint(repr(e))
-            print("Usage: set weekend_value <value>")
-
-    def set_weekends(self, weekends):
-        if re.fullmatch(r'(\d\s*,?\s*)+', weekends):
-            try:
-                staff.weekends = self.strtointlist(weekends)
-                self.save()
-            except IndexError:
-                e = IndexError("Weekends must be int from 0 to 6 inclusive")
-                eprint(repr(e))
-            except Exception as e:
-                eprint(repr(e))
-        else:
-            print("Usage: set weekends <days>")
             
     # better than having the availability passed as an argument to the
     # 'makecal' function. user can make many calendars with less typing
@@ -1470,9 +1501,7 @@ Welcome {staff.staff_name} SRA!
             np.savetxt(path2, availability, delimiter=',')
             print(f"Successfully loaded {arg}")
         except OSError as e:
-            eprint(repr(e))
-            print("First 10 files in availabilities directory: ")
-            
+            eprint(repr(e))         
         except Exception as e:
             eprint(repr(e))
     
@@ -1485,31 +1514,17 @@ Welcome {staff.staff_name} SRA!
         'load'.
         '''
         avs = sorted(os.listdir(avail_path))
+        if len(avs) == 0:
+            print(f"{Fore.LIGHTRED_EX}No files{Style.RESET_ALL}")
+            return
         print(f"{Fore.LIGHTBLUE_EX}")
         for name in avs:
             print(name)
         print(f"{Style.RESET_ALL}")
      
-    # handles most reasonable argument formats for the makeav method
-    @staticmethod
-    def parse_days(string):
-        days = []
-        try:
-            args = re.split(r'[,\s]+', string.strip())
-            if args == ['']:
-                return []
-            for a in args:
-                try:
-                    days.append(int(a))
-                except:
-                    start, end = re.split("\s*:\s*", a.strip())
-                    [days.append(i) for i in range(int(start),int(end) + 1)]
-        except:
-            raise
-        return np.unique(days)
         
-    # user can make their own availability without having to manually enter
-    # 1s and 0s into an excel file
+    # user can make their own availability csv without having to 
+    # manually enter 1s and 0s into an excel file
     def do_makeav(self, arg):
         '''
         Usage: makeav <year> <month>
@@ -1528,10 +1543,11 @@ Welcome {staff.staff_name} SRA!
         eg. Available days: 1,4,5:8,15,20:22
             means available on [1,4,5,6,7,8,15,20,21,22]
         '''
+
         try:
             args = re.split(r'[,\s]+', arg)
             if len(args) < 2 or len(args) > 2:
-                print("Usage: makeav <year> <month>")
+                self.do_help("makeav")
                 return
             year = int(args[0])
             month = int(args[1])
@@ -1556,7 +1572,7 @@ Welcome {staff.staff_name} SRA!
                     if key_press == 'exit':
                         return
                     else:
-                        days = StaffCmd.parse_days(key_press)
+                        days = StaffCmd.parse_int(key_press)
                     if (np.any(np.asarray(days) > 31)
                             or np.any(np.asarray(days) < 1)):
                         raise ValueError(
@@ -1602,10 +1618,10 @@ Welcome {staff.staff_name} SRA!
         
         Parameters
         ----------
-        year : int in YYYY format
-            year of the calendar
+        year : int YYYY format
+            year for the calendar
         month : int
-            month of the calendar
+            month for the calendar
             
         Options
         -------
@@ -1621,15 +1637,13 @@ Welcome {staff.staff_name} SRA!
         global staff
         
         flags_used = False
-        has_days_off = False
-        has_forced = False
         off_days = []
         assignments = {}
 
         try:
             args = re.split(r'[ ,]+', arg)
             if len(args) < 2:
-                print("Usage: makecal <year> <month> [options]")
+                self.do_help("makecal")
                 return
             if availability is None:
                 raise ValueError(
@@ -1640,85 +1654,82 @@ Welcome {staff.staff_name} SRA!
                 raise ValueError("Invalid Format: YYYY required")
             num_days = cal.monthrange(year, month)[1]
             valid_flags = ['--offdays', '--assign']
-            flags = args[2:] if len(arg) > 2 else []
-        except ValueError as e:
-            eprint(repr(e))
-            return
-        except Exception:
-            print("Year and month must be int")
-            return
-        
-        try:
+            flags = np.unique(args[2:]) if len(arg) > 2 else []
             for flag in flags:
                 if flag not in valid_flags:
-                    e = ValueError(f"Invalid option: {flag}")
-                    eprint(repr(e))
-                    return
-            if '--offdays' in flags and has_days_off is False:
+                    self.do_help("makecal")
+                    raise  ValueError(f"Invalid option: {flag}")
                 flags_used = True
-                print("Please enter day numbers separated by ','")
-                while True:
-                    try:
-                        key_press = input("Days off: ")
-                        off_days = self.strtointlist(key_press)
-                        if (np.any(np.asarray(off_days) > num_days)
-                                or np.any(np.asarray(off_days) < 1)):
-                            raise ValueError(
-                                f"Day numbers must be between 1 and {num_days}")
-                        has_days_off = True
-                        print(f"The days {off_days} will not be assigned")
-                        break
-                    except ValueError as e:
-                        eprint(repr(e))
-                time.sleep(1)
-            if '--assign' in flags and has_forced is False:
-                flags_used = True
-                all_names = []
-                all_days = []
-                print("{Fore.LIGHTBLUE_EX}")
-                print("You will make assignments one RA at a time")
-                print("Please enter day numbers separated by ','")
-                print("Type 'names' to see all available names")
-                print("Type 'done' into name field when finished"
-                      "{Style.RESET_ALL}")
-                while True:
-                    try:
-                        name = input("RA name: ")
-                        if name == 'done':
-                            break
-                        elif name == 'names':
-                            print(staff.get_names())
-                            continue
-                        elif name in all_names:
-                            raise ValueError(f"RA {name} has already"
-                                             " been assigned") 
-                        elif name not in staff.get_names():
-                            raise ValueError(f"Name '{name}' does not"
-                                             " exist in staff")
-                        days = list(np.unique(
-                            self.strtointlist(
-                                input("Days to assign: "))))
-                        for day in days:
-                            if day in np.ravel(all_days):
-                                raise ValueError(
-                                    f"Day {day} has already been assigned")
-                            if day in off_days:
-                                raise ValueError(
-                                    f"Cannot assign an RA to an off day: {day}")
-                        if (np.any(np.asarray(days) > 31)
-                                or np.any(np.asarray(days) < 1)):
-                            raise ValueError(
-                                f"Day numbers must be between 1 and {num_days}")
-                        print(f"RA {name} assigned to days {days}")
-                        all_names.append(name)
-                        all_days.append(days)
-                    except Exception as e:
-                        eprint(repr(e))
-                assignments = dict(zip(all_names, all_days))
-                print(f"Assignments set to {assignments}")
-                has_forced = True
         except Exception as e:
             eprint(repr(e))
+            return
+        
+        if flags_used is True:
+            print(f"{Fore.LIGHTBLUE_EX}")
+            print("Please enter day numbers/ranges separated by ','")
+            print("x:y denotes days from x to y inclusive")
+            print(f"{Style.RESET_ALL}")
+
+        # flag handling
+        if '--offdays' in flags:
+            while True:
+                try:
+                    key_press = input("Days off: ")
+                    off_days = StaffCmd.parse_int(key_press)
+                    if (np.any(np.asarray(off_days) > num_days)
+                            or np.any(np.asarray(off_days) < 1)):
+                        raise ValueError(
+                            f"Day numbers must be between 1 and {num_days}")
+                    print(f"The days {off_days} will not be assigned")
+                    break
+                except ValueError as e:
+                    eprint(repr(e))
+            time.sleep(1)
+        if '--assign' in flags:
+            flags_used = True
+            all_names = []
+            all_days = []
+            print("{Fore.LIGHTBLUE_EX}")
+            print("You will make assignments one RA at a time")
+            print("Please enter day numbers separated by ','")
+            print("Type 'names' to see all available names")
+            print("Type 'done' into name field when finished"
+                    "{Style.RESET_ALL}")
+            while True:
+                try:
+                    name = input("RA name: ")
+                    if name == 'done':
+                        break
+                    elif name == 'names':
+                        print(staff.get_names())
+                        continue
+                    elif name in all_names:
+                        raise ValueError(f"RA {name} has already"
+                                            " been assigned") 
+                    elif name not in staff.get_names():
+                        raise ValueError(f"Name '{name}' does not"
+                                            " exist in staff")
+                    days = list(np.unique(
+                        StaffCmd.parse_int(
+                            input("Days to assign: "))))
+                    for day in days:
+                        if day in np.ravel(all_days):
+                            raise ValueError(
+                                f"Day {day} has already been assigned")
+                        if day in off_days:
+                            raise ValueError(
+                                f"Cannot assign an RA to an off day: {day}")
+                    if (np.any(np.asarray(days) > 31)
+                            or np.any(np.asarray(days) < 1)):
+                        raise ValueError(
+                            f"Day numbers must be between 1 and {num_days}")
+                    print(f"RA {name} assigned to days {days}")
+                    all_names.append(name)
+                    all_days.append(days)
+                except Exception as e:
+                    eprint(repr(e))
+            assignments = dict(zip(all_names, all_days))
+            print(f"Assignments set to {assignments}")
 
         if flags_used is True:
             while True:
@@ -1786,9 +1797,9 @@ Welcome {staff.staff_name} SRA!
             the days to be switched in the calendar
         '''
         try:
-            days = self.strtointlist(arg)
+            days = StaffCmd.parse_int(arg)
             if len(days) != 2:
-                raise ValueError("Two day numbers must be provided")
+                self.do_help("switch")
             my_cal.switch_days(days[0], days[1])
             my_cal.recalculate(staff)
             self.save()
@@ -1811,15 +1822,21 @@ Welcome {staff.staff_name} SRA!
             day to assign the RA to
         
         eg. assign Jane Doe 12
-        
         '''
+        # parse
         name = ''
+        day = None
         for t in arg.split():
             try:
                 day = int(t)
             except ValueError:
                 name += f"{t} "
         name = name.strip()
+
+        if name == '' or day is None:
+            self.do_help("assign")
+            return
+    
         try:
             my_cal.assign(name, day)
             my_cal.recalculate(staff)
@@ -1895,12 +1912,15 @@ Welcome {staff.staff_name} SRA!
                 self.save()
             else:
                 raise ValueError(
-                    "Can only undo applying the last generated calendar."
+                    "Can only undo the last generated calendar."
                     "The last generated calendar has not been applied.")
+        except NameError:
+            e = NameError('No applied calendar found')
+            eprint(repr(e))
         except Exception as e:
             eprint(repr(e))
 
-    def do_reset(self, args):
+    def do_reset(self, arg):
         '''
         Usage: reset <confirmation>
         
@@ -1911,7 +1931,7 @@ Welcome {staff.staff_name} SRA!
         confirmation : str
             user confirmation of 'yes' required to reset all points
         '''
-        if args == 'yes':
+        if arg == 'yes':
             for RA in staff.RAs:
                 RA.points = 0
             try:
@@ -1934,6 +1954,10 @@ Welcome {staff.staff_name} SRA!
         filename : str
             name of the calendar to be saved
         '''
+        if arg == '':
+            self.do_help("save")
+            return
+
         if not re.match(r"^[\w\-.][\w\-. ]*$", arg):
             eprint("Invalid filename")
             return
@@ -1952,14 +1976,30 @@ Welcome {staff.staff_name} SRA!
         except Exception as e:
             eprint(repr(e))
 
-    def do_exit(self, *args):
+    def do_exit(self, arg):
         '''
         Exits the calgen app
         '''
         return True
 
-    def strtointlist(self, string):
-        return list(map(int, re.split(r'[ ,]+', string.strip())))
+    # handles most reasonable argument formats when 
+    # arrays of int are involved
+    @staticmethod
+    def parse_int(string):
+        days = []
+        try:
+            args = re.split(r'[,\s]+', string.strip())
+            if args == ['']:
+                return []
+            for a in args:
+                try:
+                    days.append(int(a))
+                except:
+                    start, end = re.split("\s*:\s*", a.strip())
+                    [days.append(i) for i in range(int(start),int(end) + 1)]
+        except:
+            raise
+        return np.unique(days)
 
     def save(self):
         try:
@@ -1977,14 +2017,15 @@ Welcome {staff.staff_name} SRA!
         except:
             pass
         
-    # do nothing if user enters nothing
-    # to prevent user from accidentally running a command multiple times
+    # * overwritten methods from parent class
+
+    # do nothing if user enters nothing. Done to prevent user from 
+    # accidentally running a command multiple times, which is the default
     def emptyline(self):
         return
-    
+
     # say goodbye
     def postloop(self):
-        global quotes
         # close colorama
         deinit()
         # Some motivational quotes, some funny quotes, some random quotes
