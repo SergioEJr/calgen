@@ -171,7 +171,8 @@ class Staff:
         hline += '\n'
         res_advs = Staff.sort_RAs(self.RAs, sort)
         # make headers
-        result = f"{'Name' : <{max_len}}{'Points' : >{max_len}}\n"
+        result = hline
+        result += f"{'Name' : <{max_len}}{'Points' : >{max_len}}\n"
         result += hline
         # make table
         for RA in res_advs:
@@ -348,6 +349,7 @@ class Staff:
                 RA.points = curr_points[i]
 
             # make calendar object
+            # TODO: replace RAs with CalRAs
             cld = Calendar(year, month, RAs, availability)
             cld.weekends = self.weekends
             cld.weekend_value = self.weekend_value
@@ -408,7 +410,7 @@ class Staff:
                     else:
                         RA_in_best_cal.add_points(1)
                 # remove inherited days from available days
-                mask = np.invert(np.isin(available_day_indices, seed_indices))
+                mask = np.isin(available_day_indices, seed_indices, invert=True)
                 available_day_indices = available_day_indices[mask]
 
             # fill in the calendar
@@ -437,10 +439,8 @@ class Staff:
                     -1 * np.sum(availability[:, day_mask], axis=0))
                 day_weights = day_factors / np.sum(day_factors)
 
-                # choose a random available day
-                # can include the argument p = day_weights to weight
-                # days by availability
-                # i'm not sure if this does anything
+                # choose a random available day, weighted
+                # by that day's availability
                 day_index = np.random.choice(
                     available_day_indices,
                     p=day_weights)
@@ -747,10 +747,10 @@ class Calendar:
             overmorrow_RA = self.calendar[i + 2]
             # if RA is on-call three days in a row, really high cost
             if current_RA is overmorrow_RA and current_RA is next_day_RA:
-                cost += 6
+                cost += 10
             # some cost if RA is on-call two days in a row
             elif current_RA is next_day_RA:
-                cost += 2
+                cost += 4
             # small cost if RA is on-call the day after tomorrow
             elif current_RA is overmorrow_RA:
                 cost += 1
@@ -798,6 +798,13 @@ class Calendar:
         
         '''
 
+        # priorities (not strict):
+        # 1. Global fairness: that RAs have similar total points
+        # 2. Respect availability: that RAs are not made on-call when unavailable
+        # 3. Local fairness: that RAs have similar points for the month
+        # 4. Work density: that RAs not be on-call multiple days in a row
+        # 5. Similar schedules: that RAs have similar number of weekends/days for the month
+        
         weights = np.asarray([20, 15, 15, 4, 2, 2])
         costs = np.asarray([
             np.std(self.points),  # std of total point distribution
@@ -1022,12 +1029,15 @@ class Calendar:
         points_from_this = ((days_on_call - weekends_on_call) 
                             + weight * (weekends_on_call))
 
-        result = f"{'Name' : <{max_len}}{'Wkdays On-call' : <{max_len}}"
+        hline = ''
+        for i in range(max_len * 5):
+            hline += '-'
+
+        result = f"{hline}\n"
+        result += f"{'Name' : <{max_len}}{'Wkdays On-call' : <{max_len}}"
         result += f"{'Wknds On-call' : <{max_len}}{'Cal Points' : ^{max_len}}"
         result += f"{'Total Points' : ^{max_len}}\n"
-        for i in range(max_len * 5):
-            result += '-'
-        result += '\n'
+        result += f"{hline}\n"
         for i, RA in enumerate(self.RAs):
             result += f"{RA.name : <{max_len}}"
             result += f"{days_on_call[i] - weekends_on_call[i] : ^{max_len}.0f}"
@@ -1038,28 +1048,26 @@ class Calendar:
 
 
 class StaffCmd(cmd.Cmd):
-    global staff
-    global my_cal
-    global availability
-    global quotes
-    global staff_path
-    global common_path
-    global last_cal_path
-    global avail_path
-    global saved_path
-    
-    
+    global STAFF_PATH
+    global COMMON_PATH
+    global LAST_CAL_PATH
+    global AVAIL_PATH
+    global SAVE_PATH
+
+    # start colorama
     init()
 
     app_dir = os.path.abspath(os.path.dirname(__file__))
-    # absolute paths to all needed directories
-    common_path = os.path.abspath(os.path.join(app_dir, 'calgen_common'))
-    staff_path = os.path.abspath(os.path.join(common_path, 'my_staff.pkl'))
-    last_cal_path = os.path.abspath(os.path.join(common_path, 'last_cal.pkl'))
-    avail_path = os.path.abspath(os.path.join(app_dir, 'availabilities'))
-    saved_path = os.path.abspath(os.path.join(app_dir, 'saved_calendars'))
     os.chdir(app_dir)
     all_dirs = os.listdir()
+    
+    # absolute paths to all needed directories
+    COMMON_PATH = os.path.abspath(os.path.join(app_dir, 'calgen_common'))
+    STAFF_PATH = os.path.abspath(os.path.join(COMMON_PATH, 'my_staff.pkl'))
+    LAST_CAL_PATH = os.path.abspath(os.path.join(COMMON_PATH, 'last_cal.pkl'))
+    AVAIL_PATH = os.path.abspath(os.path.join(app_dir, 'availabilities'))
+    SAVE_PATH = os.path.abspath(os.path.join(app_dir, 'saved_calendars'))
+
     # create necessary folders if they don't exist
     # folder to contain the Staff, Calendar objects as well
     # as the last loaded availability
@@ -1071,101 +1079,104 @@ class StaffCmd(cmd.Cmd):
     # where the user stores the availabilities
     if 'availabilities' not in all_dirs:
         os.mkdir('availabilities')
-    # get contents of common folder
-    dir_contents = [x for x in os.listdir('calgen_common')]
-    try:
-        with open(os.path.join(common_path,"quotes.txt"), 'r') as f:
-            content = f.read()
-            quotes = np.asarray(content.split('\n'))
-    except:
-        quotes = ['']
-    # open the staff
-    # if there is no staff
-    if 'my_staff.pkl' not in dir_contents:
-        while True:
-            try:
-                print("Welcome to calgen!")
-                time.sleep(1)
-                print("No saved staff found."
-                      " Would you like to create one? y/n")
-                key_press = input('calgen: ')
-                if key_press == 'y':
-                    new_staff_name = input('Name of staff: ')
-                    names_of_RAs = input("Names of RAs separated by ',': ")
-                    names_of_RAs_list = re.split(r',\s*', names_of_RAs)
-                    names_of_RAs_list = list(
-                        map(str.strip, names_of_RAs_list))
-                    for name in names_of_RAs_list:
-                        if not re.fullmatch(r'([A-Za-z]+ ?)+', name):
-                            raise ValueError(
-                                f"Invalid Name: '{name}'"
-                                " name must only contain letters")
-                    staff = Staff(new_staff_name, names_of_RAs_list)
-                    print("Does this look good? y/n")
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # get contents of common folder
+        common_contents = os.listdir('calgen_common')
+        try:
+            with open(os.path.join(COMMON_PATH, "quotes.txt"), 'r') as f:
+                content = f.read()
+                self.quotes = np.asarray(content.split('\n'))
+        except:
+            self.quotes = ['']
+        # open the staff
+        # if there is no staff, make one
+        if 'my_staff.pkl' not in common_contents:
+            while True:
+                try:
+                    print("Welcome to calgen!")
                     time.sleep(1)
-                    print(staff)
+                    print("No saved staff found."
+                        " Would you like to create one? y/n")
                     key_press = input('calgen: ')
                     if key_press == 'y':
-                        print(f"New staff {staff.staff_name}"
-                              " created and saved!")
-                        with open(staff_path, 'wb') as f:
-                            pickle.dump(staff, f)
-                        time.sleep(2)
-                        break
+                        new_staff_name = input('Name of staff: ')
+                        names_of_RAs = input("Names of RAs separated by ',': ")
+                        names_of_RAs_list = re.split(r',\s*', names_of_RAs)
+                        names_of_RAs_list = list(
+                            map(str.strip, names_of_RAs_list))
+                        for name in names_of_RAs_list:
+                            if not re.fullmatch(r'([A-Za-z]+ ?)+', name):
+                                raise ValueError(
+                                    f"Invalid Name: '{name}'"
+                                    " name must only contain letters")
+                        self.staff = Staff(new_staff_name, names_of_RAs_list)
+                        print("Does this look good? y/n")
+                        time.sleep(1)
+                        print(self.staff)
+                        key_press = input('calgen: ')
+                        if key_press == 'y':
+                            print(f"New staff {self.staff.staff_name}"
+                                " created and saved!")
+                            with open(STAFF_PATH, 'wb') as f:
+                                pickle.dump(self.staff, f)
+                            time.sleep(2)
+                            break
+                        elif key_press == 'n':
+                            pass
+                        else:
+                            eprint(f"Invalid input: '{key_press}'")
+                            pass
                     elif key_press == 'n':
-                        pass
+                        print("quitting...")
+                        sys.exit()
                     else:
-                        eprint(f"Invalid input: '{key_press}'")
+                        eprint("Invalid input: '{key_press}'")
                         pass
-                elif key_press == 'n':
-                    print("quitting...")
+                except SystemExit:
                     sys.exit()
-                else:
-                    eprint("Invalid input: '{key_press}'")
-                    pass
-            except SystemExit:
-                sys.exit()
+                except Exception as e:
+                    eprint(repr(e))
+        else:
+            try:
+                with open(STAFF_PATH, 'rb') as f:
+                    self.staff = pickle.load(f)
             except Exception as e:
                 eprint(repr(e))
-    else:
+                return
+        # load the last calendar and availability
         try:
-            with open(staff_path, 'rb') as f:
-                staff = pickle.load(f)
+            if 'last_cal.pkl' in common_contents:
+                with open(LAST_CAL_PATH, 'rb') as f:
+                    self.cld = pickle.load(f)
+            if 'last_avail.csv' in common_contents:
+                path = os.path.join(COMMON_PATH, "last_avail.csv")
+                self.availability = np.genfromtxt(path, delimiter=',')
+            else:
+                self.availability = None
+                print(f"\n{Fore.LIGHTRED_EX}[WARNING]: No availability loaded."
+                    " Use function 'load'"
+                    " before \nattempting to use the 'makecal' utility"
+                    f"{Style.RESET_ALL}")
         except Exception as e:
             eprint(repr(e))
-    try:
-        if 'last_cal.pkl' in dir_contents:
-            with open(last_cal_path, 'rb') as f:
-                my_cal = pickle.load(f)
-        if 'last_avail.csv' in dir_contents:
-            path = os.path.join(common_path, "last_avail.csv")
-            availability = np.genfromtxt(path, delimiter=',')
-        else:
-            availability = None
-            av_warning = (f"\n{Fore.LIGHTRED_EX}[WARNING]: No availability loaded."
-                  " Use function 'ldav'"
-                  " before \nattempting to use the 'mkcal' utility"
-                  f"{Style.RESET_ALL}")
-    except Exception as e:
-        eprint(repr(e))
-        
-    intro = f"""{Fore.LIGHTBLUE_EX}          |                   
+
+        self.intro = f"""{Fore.LIGHTBLUE_EX}          |                   
 ,---.,---.|    ,---.,---.,---.
 |    ,---||    |   ||---'|   |
 `---'`---^`---'`---|`---'`   |
-               `---'         '  v1.0 {Style.RESET_ALL}"""
-    if availability is None:
-        intro += f"{av_warning}"   
-    intro += f"""
-Welcome {staff.staff_name} SRA!
+               `---'         '  v1.0 {Style.RESET_ALL}"""  
+        self.intro += f"""
+Welcome {self.staff.staff_name} SRA!
 'help' for help
 'exit' to exit"""
-    
+        self.prompt = 'calgen: '
 
-    prompt = 'calgen: '
-    
     # * more detailed documentation for the multiple 
     # * 'set' command handler commands
+
     def help_set_pts(self):
         print('''
         Usage: set pts <name> <points>
@@ -1249,9 +1260,10 @@ Welcome {staff.staff_name} SRA!
         if name == '':
             self.help_set_points()
             return
-
+        
         try:
-            name_to_RAobject = dict(zip(staff.get_names(), staff.RAs))
+            name_to_RAobject = dict(
+                        zip(self.staff.get_names(), self.staff.RAs))
             chosen_RA = name_to_RAobject[name]
             chosen_RA.points = points
             print(f"'{chosen_RA.name}' now has {points} points")
@@ -1272,7 +1284,8 @@ Welcome {staff.staff_name} SRA!
                 self.help_set_name()
                 return
             old_name, new_name = args[0], args[1]
-            name_to_RA = dict(zip(staff.get_names(), staff.RAs))
+            name_to_RA = dict(zip(
+                self.staff.get_names(), self.staff.RAs))
             if new_name in name_to_RA.keys():
                 raise ValueError(f"'{new_name}' name already taken")
             chosen_RA = name_to_RA[old_name]
@@ -1295,7 +1308,7 @@ Welcome {staff.staff_name} SRA!
             value = float(arg)
             if value < 1:
                 raise ValueError("Weekend value must be >= 1")
-            staff.weekend_value = value
+            self.staff.weekend_value = value
             self.save()
         except Exception as e:
             eprint(repr(e))
@@ -1309,7 +1322,7 @@ Welcome {staff.staff_name} SRA!
         
         if re.fullmatch(r'(\d\s*,?\s*)+', arg):
             try:
-                staff.weekends = StaffCmd.parse_int(arg)
+                self.staff.weekends = StaffCmd.parse_int(arg)
                 self.save()
             except IndexError:
                 e = IndexError("Weekends must be int from 0 to 6 inclusive")
@@ -1345,17 +1358,17 @@ Welcome {staff.staff_name} SRA!
             sort_flag = 'names'
 
         weekends = ''
-        if len(staff.weekends) == 0:
+        if len(self.staff.weekends) == 0:
             weekends += 'None'
         else:
-            for day in staff.weekends:
+            for day in self.staff.weekends:
                 weekends += f"{cal.day_name[day]} "
 
         print("")
-        print(f"{Fore.LIGHTBLUE_EX}{staff.staff_name}{Style.RESET_ALL}")
-        print(f"The following days count as weekends: {weekends}")
-        print(f"Weekends (weekdays) are worth {staff.weekend_value} (1) points. ")
-        staff.print_RAs(sort=sort_flag)
+        print(f"{Fore.LIGHTBLUE_EX}{self.staff.staff_name}{Style.RESET_ALL}\n"
+            f"Days considered weekends: {weekends}\n"
+            f"Weekend/day value: {self.staff.weekend_value :.1f} / 1.0  ")
+        self.staff.print_RAs(sort=sort_flag)
 
     def do_add(self, arg):
         '''
@@ -1391,7 +1404,7 @@ Welcome {staff.staff_name} SRA!
             if not re.fullmatch(r'([A-Za-z]+ ?)+', name):
                 raise ValueError(
                     f"Invalid Name: '{name}' name must only contain letters")
-            staff.add_RAs(name, points)
+            self.staff.add_RAs(name, points)
             print(f"Added RA '{name}' to staff")
             self.save()
         except ValueError as e:
@@ -1418,7 +1431,7 @@ Welcome {staff.staff_name} SRA!
             return
         
         try:
-            staff.delete_RAs(name)
+            self.staff.delete_RAs(name)
             print(f"Removed RA '{name}' from staff")
             self.save()
         except ValueError as e:
@@ -1492,13 +1505,11 @@ Welcome {staff.staff_name} SRA!
         filename : str
             the name of the csv you are trying to load
         '''
-        global availability
-
         try:
-            path1 = os.path.join(avail_path, arg)
-            path2 = os.path.join(common_path, "last_avail.csv")
-            availability = np.genfromtxt(path1, delimiter=',', dtype = 'int')
-            np.savetxt(path2, availability, delimiter=',')
+            path1 = os.path.join(AVAIL_PATH, arg)
+            path2 = os.path.join(COMMON_PATH, "last_avail.csv")
+            self.availability = np.genfromtxt(path1, delimiter=',', dtype = 'int')
+            np.savetxt(path2, self.availability, delimiter=',')
             print(f"Successfully loaded {arg}")
         except OSError as e:
             eprint(repr(e))         
@@ -1513,7 +1524,7 @@ Welcome {staff.staff_name} SRA!
         'load' uses. These are the possible arguments for
         'load'.
         '''
-        avs = sorted(os.listdir(avail_path))
+        avs = sorted(os.listdir(AVAIL_PATH))
         if len(avs) == 0:
             print(f"{Fore.LIGHTRED_EX}No files{Style.RESET_ALL}")
             return
@@ -1562,8 +1573,8 @@ Welcome {staff.staff_name} SRA!
         print("Please enter day numbers/ranges separated by ','")
         print("x:y denotes days from x to y inclusive")
         print(f"Type 'exit' to exit the utility whenever {Style.RESET_ALL}")
-        av = np.zeros((staff.RAs.size, num_days), dtype = 'int')
-        for i, name in enumerate(staff.get_names()):
+        av = np.zeros((self.staff.RAs.size, num_days), dtype = 'int')
+        for i, name in enumerate(self.staff.get_names()):
             while True:
                 try:
                     print("\nEnter the available days for"
@@ -1594,10 +1605,10 @@ Welcome {staff.staff_name} SRA!
                     return
                 if filename[-4:].lower() != '.csv':
                     filename += '.csv'
-                path = os.path.join(avail_path, filename)
+                path = os.path.join(AVAIL_PATH, filename)
                 np.savetxt(path, av, delimiter=',')
                 print("Availability csv saved in "
-                      f"{Fore.LIGHTBLUE_EX}{path}{Style.RESET_ALL}")
+                      f"{Fore.LIGHTBLUE_EX}{path}{Style.RESET_ALL}\n")
                 break
             except OSError as e:
                 eprint(repr(e))
@@ -1632,9 +1643,6 @@ Welcome {staff.staff_name} SRA!
                 Can be used to guarantee that certain RAs get paired with
                 certain days on call.
         '''
-        global availability
-        global my_cal
-        global staff
         
         flags_used = False
         off_days = []
@@ -1645,7 +1653,7 @@ Welcome {staff.staff_name} SRA!
             if len(args) < 2:
                 self.do_help("makecal")
                 return
-            if availability is None:
+            if self.availability is None:
                 raise ValueError(
                     "No availability loaded. Use 'load' first")
             year = int(args[0])
@@ -1654,7 +1662,7 @@ Welcome {staff.staff_name} SRA!
                 raise ValueError("Invalid Format: YYYY required")
             num_days = cal.monthrange(year, month)[1]
             valid_flags = ['--offdays', '--assign']
-            flags = np.unique(args[2:]) if len(arg) > 2 else []
+            flags = set(args[2:]) if len(arg) > 2 else []
             for flag in flags:
                 if flag not in valid_flags:
                     self.do_help("makecal")
@@ -1701,12 +1709,12 @@ Welcome {staff.staff_name} SRA!
                     if name == 'done':
                         break
                     elif name == 'names':
-                        print(staff.get_names())
+                        print(self.staff.get_names())
                         continue
                     elif name in all_names:
                         raise ValueError(f"RA {name} has already"
                                             " been assigned") 
-                    elif name not in staff.get_names():
+                    elif name not in self.staff.get_names():
                         raise ValueError(f"Name '{name}' does not"
                                             " exist in staff")
                     days = list(np.unique(
@@ -1734,14 +1742,14 @@ Welcome {staff.staff_name} SRA!
         if flags_used is True:
             while True:
                 try:
-                    my_cal = staff.make_calendar(year
+                    self.cld = self.staff.make_calendar(year
                                                  , month
-                                                 , availability
+                                                 , self.availability
                                                  , off_days
                                                  , assignments)
                     print("")
-                    print(my_cal)
-                    my_cal.info()
+                    print(self.cld)
+                    self.cld.info()
                 except Exception as e:
                     eprint(repr(e))
                     return
@@ -1759,15 +1767,15 @@ Welcome {staff.staff_name} SRA!
                     break
         else:
             try:
-                my_cal = staff.make_calendar(year
+                self.cld = self.staff.make_calendar(year
                                              , month
-                                             , availability
+                                             , self.availability
                                              , off_days
                                              , assignments)
 
                 print("")
-                print(my_cal)
-                my_cal.info()
+                print(self.cld)
+                self.cld.info()
             except Exception as e:
                 eprint(repr(e))
                 return
@@ -1777,10 +1785,10 @@ Welcome {staff.staff_name} SRA!
               " call 'save'")
         print("To apply this calendar's points to your staff,"
               " call 'apply'")
-        path = os.path.join(common_path,"last_avail.csv")
-        np.savetxt(path, availability, delimiter=',')
-        with open(last_cal_path, 'wb') as f:
-            pickle.dump(my_cal, f)
+        path = os.path.join(COMMON_PATH,"last_avail.csv")
+        np.savetxt(path, self.availability, delimiter=',')
+        with open(LAST_CAL_PATH, 'wb') as f:
+            pickle.dump(self.cld, f)
 
     # allows for small changes to a calendar
     def do_switch(self, arg):
@@ -1800,12 +1808,12 @@ Welcome {staff.staff_name} SRA!
             days = StaffCmd.parse_int(arg)
             if len(days) != 2:
                 self.do_help("switch")
-            my_cal.switch_days(days[0], days[1])
-            my_cal.recalculate(staff)
+            self.cld.switch_days(days[0], days[1])
+            self.cld.recalculate(self.staff)
             self.save()
             print("Switch successful")
-        except NameError:
-            e = NameError("You have not generated any calendars")
+        except AttributeError:
+            e = AttributeError("You have not generated any calendars")
             eprint(repr(e))
         except Exception as e:
             eprint(repr(e))
@@ -1838,10 +1846,10 @@ Welcome {staff.staff_name} SRA!
             return
     
         try:
-            my_cal.assign(name, day)
-            my_cal.recalculate(staff)
+            self.cld.assign(name, day)
+            self.cld.recalculate(self.staff)
             day_name = cal.day_name[
-                cal.weekday(my_cal.year, my_cal.month, day)]
+                cal.weekday(self.cld.year, self.cld.month, day)]
             if str(day)[-1] == '1':
                 ending = "st"
             elif str(day)[-1] == '2':
@@ -1851,8 +1859,8 @@ Welcome {staff.staff_name} SRA!
             else:
                 ending = 'th'
             print(f"Assigned '{name}' to {day_name} the {day}{ending}")
-        except NameError:
-            e = NameError("You have not generated any calendars")
+        except AttributeError:
+            e = AttributeError("You have not generated any calendars")
             eprint(repr(e))
         except Exception as e:
             eprint(repr(e))
@@ -1863,11 +1871,11 @@ Welcome {staff.staff_name} SRA!
         '''
         try:
             print("\nConflicts with availability in"
-                  f" {Fore.LIGHTRED_EX}RED{Style.RESET_ALL}\n"
-                  f"{my_cal}") 
-            my_cal.info()
-        except NameError:
-            e = NameError("You have not generated any calendars")
+                  f" {Fore.LIGHTRED_EX}RED{Style.RESET_ALL}\n")
+            print(self.cld) 
+            self.cld.info()
+        except AttributeError:
+            e = AttributeError("You have not generated any calendars")
             eprint(repr(e))
         except Exception as e:
             eprint(repr(e))
@@ -1879,9 +1887,9 @@ Welcome {staff.staff_name} SRA!
         RAs
         '''
         try:
-            if my_cal.been_applied is False:
-                staff.apply_calendar(my_cal)
-                my_cal.been_applied = True
+            if self.cld.been_applied is False:
+                self.staff.apply_calendar(self.cld)
+                self.cld.been_applied = True
                 print("The last generated calendar was applied to your staff.")
                 print("Call 'show' to see updated points")
                 # save as the last calendar that was applied
@@ -1890,8 +1898,8 @@ Welcome {staff.staff_name} SRA!
                 raise ValueError(
                     "Cannot apply a calendar twice. The last generated"
                     " calendar has already been applied to your staff before")
-        except NameError:
-            e = NameError("No saved calendar found")
+        except AttributeError:
+            e = AttributeError("No saved calendar found")
             eprint(repr(e))
         except Exception as e:
             eprint(repr(e))
@@ -1903,19 +1911,18 @@ Welcome {staff.staff_name} SRA!
         Undo depth is of 1 calendar; there is no history of all calendars ever
         applied.
         '''
-        global staff
         try:
-            if my_cal.been_applied is True:
-                staff.apply_calendar(my_cal, undo=True)
-                my_cal.been_applied = False
+            if self.cld.been_applied is True:
+                self.staff.apply_calendar(self.cld, undo=True)
+                self.cld.been_applied = False
                 print("Last generated calendar unapplied successfully")
                 self.save()
             else:
                 raise ValueError(
                     "Can only undo the last generated calendar."
                     "The last generated calendar has not been applied.")
-        except NameError:
-            e = NameError('No applied calendar found')
+        except AttributeError:
+            e = AttributeError('No applied calendar found')
             eprint(repr(e))
         except Exception as e:
             eprint(repr(e))
@@ -1932,10 +1939,10 @@ Welcome {staff.staff_name} SRA!
             user confirmation of 'yes' required to reset all points
         '''
         if arg == 'yes':
-            for RA in staff.RAs:
+            for RA in self.staff.RAs:
                 RA.points = 0
             try:
-                my_cal.been_applied = False
+                self.cld.been_applied = False
             except:
                 pass
             self.save()
@@ -1963,15 +1970,15 @@ Welcome {staff.staff_name} SRA!
             return
         if arg[-4:].lower() != '.csv':
             arg += ".csv"
-        path = os.path.join(saved_path, arg)
+        path = os.path.join(SAVE_PATH, arg)
         try:
-            my_cal.save_calendar_representation_csv(path)
-            with open(last_cal_path, 'wb') as f:
-                pickle.dump(my_cal, f)
+            self.cld.save_calendar_representation_csv(path)
+            with open(LAST_CAL_PATH, 'wb') as f:
+                pickle.dump(self.cld, f)
             print("Calendar saved to "
                   f"{Fore.LIGHTBLUE_EX}{path}{Style.RESET_ALL}")
-        except NameError:
-            e = NameError("You have not generated any calendars")
+        except AttributeError:
+            e = AttributeError("You have not generated any calendars")
             eprint(repr(e))
         except Exception as e:
             eprint(repr(e))
@@ -2003,21 +2010,21 @@ Welcome {staff.staff_name} SRA!
 
     def save(self):
         try:
-            with open(staff_path, 'wb') as f:
-                pickle.dump(staff, f)
+            with open(STAFF_PATH, 'wb') as f:
+                pickle.dump(self.staff, f)
         except Exception as e:
             eprint(repr(e))
             eprint("Unable to save. If you see this, something is very" 
                   " wrong in the program files. Reinstall recommended."
                   " Changes will not be reflected on next launch.")
         try:
-            my_cal.recalculate(staff)
-            with open(last_cal_path, 'wb') as f:
-                pickle.dump(my_cal, f)
+            self.cld.recalculate(self.staff)
+            with open(LAST_CAL_PATH, 'wb') as f:
+                pickle.dump(self.cld, f)
         except:
             pass
         
-    # * overwritten methods from parent class
+    # * overwritten methods from parent Cmd class
 
     # do nothing if user enters nothing. Done to prevent user from 
     # accidentally running a command multiple times, which is the default
@@ -2029,11 +2036,11 @@ Welcome {staff.staff_name} SRA!
         # close colorama
         deinit()
         # Some motivational quotes, some funny quotes, some random quotes
-        chosen = np.random.choice(quotes)
+        chosen = np.random.choice(self.quotes)
         print("")
         print(chosen)
     
-
+# channel to main
 def main():
     shell = StaffCmd()
     shell.cmdloop()
