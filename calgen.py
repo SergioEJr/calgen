@@ -2039,6 +2039,7 @@ Welcome {self.staff.staff_name} SRA!
         chosen = np.random.choice(self.quotes)
         print("")
         print(chosen)
+        time.sleep(4)
     
 # channel to main
 def main():
