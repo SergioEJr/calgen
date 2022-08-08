@@ -8,6 +8,7 @@ Created on Wed Jun 29 18:45:06 2022
 # pip
 import numpy as np
 from colorama import init, deinit, Fore, Style
+import numba
 
 # standard library
 import calendar as cal
@@ -349,7 +350,6 @@ class Staff:
                 RA.points = curr_points[i]
 
             # make calendar object
-            # TODO: replace RAs with CalRAs
             cld = Calendar(year, month, RAs, availability)
             cld.weekends = self.weekends
             cld.weekend_value = self.weekend_value
@@ -1870,9 +1870,10 @@ Welcome {self.staff.staff_name} SRA!
         Shows the last generated calendar in the command line
         '''
         try:
-            print("\nConflicts with availability in"
-                  f" {Fore.LIGHTRED_EX}RED{Style.RESET_ALL}\n")
-            print(self.cld) 
+            result = ("\nConflicts with availability in"
+                    f" {Fore.LIGHTRED_EX}RED{Style.RESET_ALL}\n")
+            result += str(self.cld)
+            print(result)
             self.cld.info()
         except AttributeError:
             e = AttributeError("You have not generated any calendars")
@@ -2039,7 +2040,7 @@ Welcome {self.staff.staff_name} SRA!
         chosen = np.random.choice(self.quotes)
         print("")
         print(chosen)
-        time.sleep(4)
+        time.sleep(3)   
     
 # channel to main
 def main():

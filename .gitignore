@@ -5,3 +5,7 @@ calgen_common/
 saved_calendars/
 __pycache__/
 tempCodeRunnerFile.python
+build/
+calgen.spec
+dist/
+dist.zip
