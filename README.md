@@ -11,6 +11,20 @@ more weight. For instance, staffs usually regard weekend shifts as a larger resp
 vary across staffs. For these reasons, I created a lightweight, customizable, on-call shift scheduler that can generate these on-call
 calendars in seconds, satisfying all of the constraints mentioned (given reasonable RA availability information).
 
+## Features
+- Easy-to-use command-line interface with built-in documentation
+- Staff Management
+  - add/remove RAs from your staff
+  - view total points for each RA
+  - edit which days count as weekends
+  - edit how many points weekends are worth
+- Calendar Creation
+  - ML generated calendar given an availability CSV
+  - availability conflict warnings
+  - breakdown of shift distribution
+  - can edit the generated calendar to your liking
+  - export calendar to CSV (excel-readable file)
+
 ## How it works
 TODO
 
