@@ -10,3 +10,9 @@ constraints can be a lengthy and tedious process. Additonally, staffs often have
 more weight. For instance, staffs usually regard weekend shifts as a larger responsibility, but the exact days that are considered "weekends"
 vary across staffs. For these reasons, I created a lightweight, customizable, on-call shift scheduler that can generate these on-call
 calendars in seconds, satisfying all of the constraints mentioned (given reasonable RA availability information).
+
+## How it works
+TODO
+
+## Documentation
+Documentation can be accessed from inside the app by typing 'help'.
