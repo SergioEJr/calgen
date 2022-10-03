@@ -11,6 +11,8 @@ more weight. For instance, staffs usually regard weekend shifts as a larger resp
 vary across staffs. For these reasons, I created a lightweight, customizable, on-call shift scheduler that can generate these on-call
 calendars in seconds, satisfying all of the constraints mentioned (given reasonable RA availability information).
 
+![<h2>Features<h2>](https://github.com/SergioEJr/calgen/blob/master/calgen_example.PNG?raw=true "Example")
+
 ## Features
 - Easy-to-use command-line interface with built-in documentation
 - Staff Management
