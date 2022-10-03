@@ -1,5 +1,4 @@
-# calgen by Sergio Eraso
-## A lightweight, flexible, on-call shift scheduler
+![<h1>A lightweight, flexible, on-call shift scheduler</h1>](https://github.com/SergioEJr/calgen/blob/master/calgen_title.PNG?raw=true)
 
 This project was made for senior resident advisors (SRAs) at Emory University. 
 SRAs are responsible for creating monthly on-call schedules for their RAs. These schedules
@@ -11,7 +10,7 @@ more weight. For instance, staffs usually regard weekend shifts as a larger resp
 vary across staffs. For these reasons, I created a lightweight, customizable, on-call shift scheduler that can generate these on-call
 calendars in seconds, satisfying all of the constraints mentioned (given reasonable RA availability information).
 
-![<h2>Features<h2>](https://github.com/SergioEJr/calgen/blob/master/calgen_example.PNG?raw=true "Example")
+![<h2>Features</h2>](https://github.com/SergioEJr/calgen/blob/master/calgen_example.PNG?raw=true)
 
 ## Features
 - Easy-to-use command-line interface with built-in documentation
