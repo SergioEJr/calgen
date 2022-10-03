@@ -1,5 +1,5 @@
 ![<h1>A lightweight, flexible, on-call shift scheduler</h1>](https://github.com/SergioEJr/calgen/blob/master/calgen_title.PNG?raw=true)
-
+## A lightweight, flexible, on-call shift scheduler
 This project was made for senior resident advisors (SRAs) at Emory University. 
 SRAs are responsible for creating monthly on-call schedules for their RAs. These schedules
 are subject to various constraints such as respecting the availability of RAs, maintaining
